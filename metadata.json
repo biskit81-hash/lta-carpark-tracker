@@ -1,0 +1,6 @@
+{
+  "name": "SG ParkPulse - Singapore Real-Time Carpark Tracker",
+  "description": "Live Singapore carpark lot availability tracker with interactive map, HDB/URA/Commercial lot vacancy, fee calculator, and real-time updates.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
