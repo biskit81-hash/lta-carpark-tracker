@@ -10,6 +10,7 @@ interface NavbarProps {
   lastUpdatedTime: string;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
+  isLiveLta?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -21,6 +22,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   lastUpdatedTime,
   isDarkMode,
   onToggleDarkMode,
+  isLiveLta = false,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors">
@@ -91,8 +93,14 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Zone 3: Actions (Theme toggle & Live Refresh button) */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="hidden sm:flex items-center text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-            <span>Sync: {lastUpdatedTime}</span>
+          <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isLiveLta ? 'bg-emerald-500' : 'bg-slate-400 dark:bg-slate-500'
+              }`}
+              title={isLiveLta ? 'Connected to live LTA DataMall v2 feed' : 'Simulated real-time feed'}
+            />
+            <span>{isLiveLta ? 'LTA Live' : `Sync: ${lastUpdatedTime}`}</span>
           </div>
 
           <button

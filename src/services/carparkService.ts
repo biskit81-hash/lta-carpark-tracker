@@ -159,23 +159,89 @@ export function calculateParkingFee(
   };
 }
 
-/**
- * Backend Hook Point:
- * Ready for future backend integration with Data.gov.sg or custom server
- */
-export async function fetchLiveCarparkAvailability(
-  _backendUrl?: string
-): Promise<Carpark[]> {
-  /*
-   * When backend is integrated, replace simulation with:
-   * const res = await fetch(_backendUrl || '/api/carparks/availability');
-   * const data = await res.json();
-   * return data;
-   */
+export interface FetchResult {
+  carparks: Carpark[];
+  isLiveLta: boolean;
+  message?: string;
+}
 
-  // Simulating realistic live fluctuations in lot availability
-  return INITIAL_CARPARKS.map((cp) => {
-    // 30% chance of small lot change (+1 to -2)
+/**
+ * Checks serverless API health
+ */
+export async function checkApiHealth(): Promise<{ status: string; ltaKeyConfigured: boolean }> {
+  try {
+    const res = await fetch('/api/health');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    // silently catch if offline
+  }
+  return { status: 'unknown', ltaKeyConfigured: false };
+}
+
+/**
+ * Connects to /api/carparkavailability serverless function
+ * Automatically falls back to realistic drift simulation if LTA_DATAMALL_ACCOUNT_KEY is not yet populated
+ */
+export async function fetchLiveCarparkAvailability(): Promise<FetchResult> {
+  try {
+    const res = await fetch('/api/carparkavailability');
+    if (res.ok) {
+      const data = await res.json();
+
+      if (data.isLive && Array.isArray(data.value) && data.value.length > 0) {
+        // Map LTA DataMall items onto our carpark model
+        const ltaMap = new Map<string, any>();
+        data.value.forEach((item: any) => {
+          if (item.Development) {
+            ltaMap.set(item.Development.toLowerCase(), item);
+          }
+          if (item.CarParkID) {
+            ltaMap.set(item.CarParkID.toLowerCase(), item);
+          }
+        });
+
+        const updated = INITIAL_CARPARKS.map((cp) => {
+          const match =
+            ltaMap.get(cp.name.toLowerCase()) ||
+            ltaMap.get(cp.carparkNo.toLowerCase()) ||
+            ltaMap.get(cp.id.toLowerCase());
+
+          if (match && typeof match.AvailableLots === 'number') {
+            const currentCarAvailable = cp.lots.car.available;
+            const diff = match.AvailableLots - currentCarAvailable;
+
+            return {
+              ...cp,
+              lots: {
+                ...cp.lots,
+                car: {
+                  ...cp.lots.car,
+                  available: match.AvailableLots,
+                },
+              },
+              recentChange: diff,
+              trend: diff > 0 ? ('increasing' as const) : diff < 0 ? ('decreasing' as const) : ('stable' as const),
+              lastUpdated: 'Live LTA DataMall',
+            };
+          }
+          return cp;
+        });
+
+        return {
+          carparks: updated,
+          isLiveLta: true,
+          message: `Connected to LTA DataMall live feed (${data.count} sites).`,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('API call to /api/carparkavailability failed, using fallback simulation:', err);
+  }
+
+  // Fallback simulation when key is not configured or in offline preview
+  const simulated = INITIAL_CARPARKS.map((cp) => {
     const shouldShift = Math.random() < 0.35;
     if (!shouldShift) return cp;
 
@@ -194,8 +260,14 @@ export async function fetchLiveCarparkAvailability(
         },
       },
       recentChange: delta,
-      trend: delta > 0 ? 'increasing' : delta < 0 ? 'decreasing' : 'stable',
+      trend: delta > 0 ? ('increasing' as const) : delta < 0 ? ('decreasing' as const) : ('stable' as const),
       lastUpdated: 'Just now',
     };
   });
+
+  return {
+    carparks: simulated,
+    isLiveLta: false,
+    message: 'Using simulated real-time stream. Add LTA_DATAMALL_ACCOUNT_KEY to unlock production LTA feed.',
+  };
 }

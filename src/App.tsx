@@ -44,6 +44,7 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [lastUpdatedTime, setLastUpdatedTime] = useState<string>('Just now');
   const [isRatesModalOpen, setIsRatesModalOpen] = useState<boolean>(false);
+  const [isLiveLta, setIsLiveLta] = useState<boolean>(false);
 
   // Theme Management
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -71,16 +72,17 @@ export default function App() {
   const handleRefreshData = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const updated = await fetchLiveCarparkAvailability();
-      setCarparks(updated);
+      const result = await fetchLiveCarparkAvailability();
+      setCarparks(result.carparks);
+      setIsLiveLta(result.isLiveLta);
 
       // Keep selected carpark updated with latest figures
       if (selectedCarpark) {
-        const found = updated.find((c) => c.id === selectedCarpark.id);
+        const found = result.carparks.find((c) => c.id === selectedCarpark.id);
         if (found) setSelectedCarpark(found);
       }
       if (detailModalCarpark) {
-        const foundModal = updated.find((c) => c.id === detailModalCarpark.id);
+        const foundModal = result.carparks.find((c) => c.id === detailModalCarpark.id);
         if (foundModal) setDetailModalCarpark(foundModal);
       }
 
@@ -195,6 +197,7 @@ export default function App() {
         lastUpdatedTime={lastUpdatedTime}
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
+        isLiveLta={isLiveLta}
       />
 
       {/* Metrics Overview Strip */}
