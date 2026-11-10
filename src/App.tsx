@@ -36,7 +36,7 @@ const DEFAULT_FILTERS: FilterOptions = {
 export default function App() {
   const [carparks, setCarparks] = useState<Carpark[]>(INITIAL_CARPARKS);
   const [filters, setFilters] = useState<FilterOptions>(DEFAULT_FILTERS);
-  const [selectedCarpark, setSelectedCarpark] = useState<Carpark | null>(INITIAL_CARPARKS[0]);
+  const [selectedCarpark, setSelectedCarpark] = useState<Carpark | null>(null);
   const [detailModalCarpark, setDetailModalCarpark] = useState<Carpark | null>(null);
   const [bookmarkedIds, setBookmarkedIds] = useState<string[]>(getInitialBookmarks);
   const [currentTab, setCurrentTab] = useState<'map' | 'directory' | 'saved' | 'rates'>('map');

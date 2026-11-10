@@ -22,6 +22,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<{ [key: string]: L.Marker }>({});
+  const isInitialMountRef = useRef<boolean>(true);
 
   // Initialize Map
   useEffect(() => {
@@ -43,32 +44,49 @@ export const MapView: React.FC<MapViewProps> = ({
       L.control.zoom({ position: 'topright' }).addTo(map);
 
       mapInstanceRef.current = map;
+
+      // Invalidate size after layout mounts to ensure leaflet knows its dimensions
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+        }
+      }, 100);
     }
 
     const map = mapInstanceRef.current;
 
-    // Tile Layer: CartoDB Voyager for light mode, CartoDB Dark Matter for dark mode
-    // Remove previous tile layer if any
+    // Tile Layer: CartoDB Voyager
     map.eachLayer((layer) => {
       if (layer instanceof L.TileLayer) {
         map.removeLayer(layer);
       }
     });
 
-    const tileUrl = isDarkMode
-      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+    const tileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 
     L.tileLayer(tileUrl, {
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
       maxZoom: 19,
     }).addTo(map);
+  }, [isDarkMode]);
+
+  // Handle ResizeObserver to keep Leaflet size synced with parent container
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    });
+
+    resizeObserver.observe(mapContainerRef.current);
 
     return () => {
-      // Map instance is kept alive between renders to avoid flash, cleaned on unmount
+      resizeObserver.disconnect();
     };
-  }, [isDarkMode]);
+  }, []);
 
   // Clean up on component unmount
   useEffect(() => {
@@ -92,6 +110,14 @@ export const MapView: React.FC<MapViewProps> = ({
     markersRef.current = {};
 
     carparks.forEach((cp) => {
+      if (
+        !cp.coordinates ||
+        !Number.isFinite(cp.coordinates.lat) ||
+        !Number.isFinite(cp.coordinates.lng)
+      ) {
+        return;
+      }
+
       const lotInfo = cp.lots[vehicleType] || cp.lots.car;
       const statusInfo = getAvailabilityStatus(cp, vehicleType);
 
@@ -161,46 +187,99 @@ export const MapView: React.FC<MapViewProps> = ({
     });
   }, [carparks, vehicleType, selectedCarpark, onSelectCarpark]);
 
-  // Fly to selected carpark if provided
+  // Fly to selected carpark if provided and valid
   useEffect(() => {
-    if (!mapInstanceRef.current || !selectedCarpark) return;
-    mapInstanceRef.current.flyTo(
-      [selectedCarpark.coordinates.lat, selectedCarpark.coordinates.lng],
-      15,
-      { duration: 1.2 }
-    );
+    const map = mapInstanceRef.current;
+    if (!map || !selectedCarpark) return;
+
+    const lat = selectedCarpark.coordinates?.lat;
+    const lng = selectedCarpark.coordinates?.lng;
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    // Skip auto-fly on very first mount so the initial full Singapore view isn't interrupted
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+
+    map.invalidateSize();
+    const size = map.getSize();
+
+    // If container size is not yet measured, fall back to safe setView
+    if (!size || size.x <= 0 || size.y <= 0) {
+      map.setView([lat, lng], 15);
+      return;
+    }
+
+    try {
+      map.flyTo([lat, lng], 15, { duration: 1.0 });
+    } catch {
+      map.setView([lat, lng], 15);
+    }
   }, [selectedCarpark]);
 
   // Locate Singapore Center
   const handleResetView = () => {
-    if (!mapInstanceRef.current) return;
-    mapInstanceRef.current.flyTo([1.3521, 103.8198], 12, { duration: 1 });
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    map.invalidateSize();
+    try {
+      map.flyTo([1.3521, 103.8198], 12, { duration: 1 });
+    } catch {
+      map.setView([1.3521, 103.8198], 12);
+    }
   };
 
   // Mock / Geolocation: Center on Driver in Singapore
   const handleLocateMe = () => {
-    if (!mapInstanceRef.current) return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    map.invalidateSize();
 
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const lat = position.coords.latitude;
           const lng = position.coords.longitude;
-          // Verify if inside Singapore bounds (approx 1.2 to 1.5 lat, 103.6 to 104.1 lng)
-          if (lat >= 1.2 && lat <= 1.48 && lng >= 103.6 && lng <= 104.1) {
-            mapInstanceRef.current?.flyTo([lat, lng], 15);
+          if (
+            Number.isFinite(lat) &&
+            Number.isFinite(lng) &&
+            lat >= 1.2 &&
+            lat <= 1.48 &&
+            lng >= 103.6 &&
+            lng <= 104.1
+          ) {
+            try {
+              map.flyTo([lat, lng], 15);
+            } catch {
+              map.setView([lat, lng], 15);
+            }
           } else {
             // Default to Orchard / Central
-            mapInstanceRef.current?.flyTo([1.304, 103.8319], 15);
+            try {
+              map.flyTo([1.304, 103.8319], 15);
+            } catch {
+              map.setView([1.304, 103.8319], 15);
+            }
           }
         },
         () => {
           // Fallback to Orchard Road
-          mapInstanceRef.current?.flyTo([1.304, 103.8319], 15);
+          try {
+            map.flyTo([1.304, 103.8319], 15);
+          } catch {
+            map.setView([1.304, 103.8319], 15);
+          }
         }
       );
     } else {
-      mapInstanceRef.current.flyTo([1.304, 103.8319], 15);
+      try {
+        map.flyTo([1.304, 103.8319], 15);
+      } catch {
+        map.setView([1.304, 103.8319], 15);
+      }
     }
   };
 
@@ -210,9 +289,9 @@ export const MapView: React.FC<MapViewProps> = ({
       <div ref={mapContainerRef} className="w-full h-full" />
 
       {/* Floating Map Legend & Control Overlay */}
-      <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
+      <div className="absolute top-4 left-4 z-20 flex flex-col gap-2 pointer-events-none">
         {/* Legend */}
-        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm text-xs flex items-center gap-3">
+        <div className="pointer-events-auto bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm text-xs flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
             <span className="text-slate-600 dark:text-slate-300">&gt; 30 Lots</span>
